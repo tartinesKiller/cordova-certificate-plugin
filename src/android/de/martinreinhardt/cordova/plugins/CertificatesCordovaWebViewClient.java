@@ -1,49 +1,24 @@
-/*
-
- The MIT License (MIT)
-
- Copyright (c) 2015 Martin Reinhardt
-
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
-
- The above copyright notice and this permission notice shall be included in all
- copies or substantial portions of the Software.
-
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- SOFTWARE.
-
- Certificate Plugin for Cordova
-
- */
 package de.martinreinhardt.cordova.plugins;
 
+import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.cordova.engine.SystemWebViewEngine;
 import org.apache.cordova.engine.SystemWebViewClient;
 
+import android.net.http.SslCertificate;
 import android.net.http.SslError;
+import android.os.Bundle;
 import android.util.Log;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebView;
 
-/**
- *
- * Certificates Cordova WebView Client
- *
- * author, Martin Reinhardt on 23.06.14.
- *
- * Copyright Martin Reinhardt 2014. All rights reserved.
- *
- */
+import java.io.ByteArrayInputStream;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateEncodingException;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+
 public class CertificatesCordovaWebViewClient extends SystemWebViewClient {
 
     /**
@@ -53,12 +28,12 @@ public class CertificatesCordovaWebViewClient extends SystemWebViewClient {
 
     private boolean allowUntrusted = false;
 
-    /**
-     *
-     * @param cordova
-     */
+    private String trustedThumbprint = null;
+
+    private String latestRequestThumbprint = null;
+
     public CertificatesCordovaWebViewClient(SystemWebViewEngine parentEngine) {
-       super(parentEngine);
+        super(parentEngine);
     }
 
     /**
@@ -79,17 +54,54 @@ public class CertificatesCordovaWebViewClient extends SystemWebViewClient {
         this.allowUntrusted = pAllowUntrusted;
     }
 
-    /**
-     * @see org.apache.cordova.SystemWebViewClient#onReceivedSslError(WebView,
-     *      SslErrorHandler, SslError)
-     */
+    public String getTrustedThumbprint() {
+        return trustedThumbprint;
+    }
+    public void setTrustedThumbprint(final String thumbprint) {
+        this.trustedThumbprint = thumbprint;
+    }
+
+    public String getLatestRequestThumbprint() {
+        return this.latestRequestThumbprint;
+    }
+
     @Override
     public void onReceivedSslError(WebView view, SslErrorHandler handler,
-            SslError error) {
+                                   SslError error) {
         Log.d(TAG, "onReceivedSslError. Proceed? " + isAllowUntrusted());
         if (isAllowUntrusted()) {
             handler.proceed();
         } else {
+            SslCertificate sslCert = error.getCertificate();
+            X509Certificate xcert = null;
+            if (sslCert != null) {
+                Bundle bundle = SslCertificate.saveState(sslCert);
+                byte[] bytes = bundle.getByteArray("x509-certificate");
+                if (bytes != null) {
+                    try {
+                        CertificateFactory certFact = CertificateFactory.getInstance("X.509");
+                        Certificate cert = certFact.generateCertificate(new ByteArrayInputStream(bytes));
+                        xcert = (X509Certificate) cert;
+                    } catch (CertificateException e) {
+                        // do nothing, xcert is null
+                    }
+                }
+            }
+
+            if (xcert != null) {
+                try {
+                    String thumbprint = new String(Hex.encodeHex(DigestUtils.sha256(xcert.getEncoded())));
+                    this.latestRequestThumbprint = thumbprint;
+                    if (thumbprint.equals(this.trustedThumbprint)) {
+                        Log.i(TAG, "Thumbprint matched.");
+                        handler.proceed();
+                    } else {
+                        Log.e(TAG, "Thumbprint not matching. Trusted is " + this.trustedThumbprint + ", received is " + thumbprint);
+                    }
+                } catch (CertificateEncodingException e) {
+                    throw new RuntimeException(e);
+                }
+            }
             super.onReceivedSslError(view, handler, error);
         }
     }

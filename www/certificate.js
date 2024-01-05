@@ -37,10 +37,23 @@ Certificate.prototype = {
      *      boolean value to set desired behaviour
      */
     trustUnsecureCerts: function (boolActivateUnsecure) {
-        if (cordova.platformId == 'android')
+        if (cordova.platformId == 'android') {
             cordova.exec(null, null, 'CertificatesPlugin', 'setUntrusted', [boolActivateUnsecure]);
+            cordova.exec(null, null, 'CertificatesPlugin', 'setTrustedThumbprint', [""]);
+        }
         else
             cordova.exec(null, null, 'CDVCertificate', 'setUntrusted', [boolActivateUnsecure]);
+    },
+    trustCertificateWithThumbprint: function (thumbprint) {
+        if (cordova.platformId == 'android') {
+            cordova.exec(null, null, 'CertificatesPlugin', 'setUntrusted', [false]);
+            cordova.exec(null, null, 'CertificatesPlugin', 'setTrustedThumbprint', [thumbprint]);
+        }
+    },
+    getLatestRequestCertificateThumbprint: async function () {
+        return new Promise((resolve, reject) => {
+            cordova.exec(resolve, reject, 'CertificatesPlugin', 'getLatestRequestCertificateThumbprint', []);
+        });
     }
 };
 
